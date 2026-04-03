@@ -305,16 +305,22 @@
     saveModal.hidden = false;
   }
 
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
   function tryDownload(dataUrl, filename) {
-    // Try programmatic download first (works on desktop)
-    const link = document.createElement('a');
-    link.download = filename;
-    link.href = dataUrl;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    // Also show modal as fallback for iOS
-    showSaveModal(dataUrl);
+    if (isIOS) {
+      // iOS: just show modal — long-press to save
+      showSaveModal(dataUrl);
+    } else {
+      // Desktop: programmatic download
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   }
 
   // ---- Download PNG ----
