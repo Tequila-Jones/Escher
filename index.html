@@ -45,35 +45,32 @@
           <canvas id="output-canvas"></canvas>
           <div class="canvas-overlay" id="canvas-overlay">
             <span class="spinner"></span>
-            <span>Rendering...</span>
+            <span id="overlay-text">Rendering...</span>
           </div>
-          <!-- Interactive drag pad (for conformal exponent control) -->
           <canvas id="drag-pad" class="drag-pad" hidden></canvas>
         </div>
-
-        <!-- Mode-specific controls -->
 
         <!-- Escher Spiral -->
         <div class="controls mode-controls active" id="controls-escher">
           <div class="control-group">
             <label>Morph</label>
-            <input type="range" id="escher-morph" min="0" max="100" value="0">
-            <span class="cv" id="escher-morph-v">0%</span>
+            <input type="range" id="escher-morph" min="0" max="100" value="0" step="1">
+            <input type="number" class="cv" id="escher-morph-v" value="0" min="0" max="100" step="1">
           </div>
           <div class="control-group">
             <label>Scale Factor</label>
-            <input type="range" id="escher-scale" min="2" max="512" value="64">
-            <span class="cv" id="escher-scale-v">64</span>
+            <input type="range" id="escher-scale" min="2" max="512" value="64" step="1">
+            <input type="number" class="cv" id="escher-scale-v" value="64" min="2" max="512" step="1">
           </div>
           <div class="control-group">
             <label>Zoom</label>
-            <input type="range" id="escher-zoom" min="10" max="500" value="100">
-            <span class="cv" id="escher-zoom-v">1.0x</span>
+            <input type="range" id="escher-zoom" min="10" max="500" value="100" step="1">
+            <input type="number" class="cv" id="escher-zoom-v" value="100" min="10" max="500" step="1">
           </div>
           <div class="control-group">
             <label>Rotation</label>
-            <input type="range" id="escher-rotation" min="-180" max="180" value="0">
-            <span class="cv" id="escher-rotation-v">0&deg;</span>
+            <input type="range" id="escher-rotation" min="-180" max="180" value="0" step="1">
+            <input type="number" class="cv" id="escher-rotation-v" value="0" min="-180" max="180" step="1">
           </div>
         </div>
 
@@ -81,28 +78,28 @@
         <div class="controls mode-controls" id="controls-kaleidoscope">
           <div class="control-group">
             <label>Segments</label>
-            <input type="range" id="kal-segments" min="3" max="24" value="6">
-            <span class="cv" id="kal-segments-v">6</span>
+            <input type="range" id="kal-segments" min="3" max="24" value="6" step="1">
+            <input type="number" class="cv" id="kal-segments-v" value="6" min="3" max="24" step="1">
           </div>
           <div class="control-group">
             <label>Rotation</label>
-            <input type="range" id="kal-rotation" min="0" max="360" value="0">
-            <span class="cv" id="kal-rotation-v">0&deg;</span>
+            <input type="range" id="kal-rotation" min="0" max="360" value="0" step="1">
+            <input type="number" class="cv" id="kal-rotation-v" value="0" min="0" max="360" step="1">
           </div>
           <div class="control-group">
             <label>Zoom</label>
-            <input type="range" id="kal-zoom" min="10" max="500" value="100">
-            <span class="cv" id="kal-zoom-v">1.0x</span>
+            <input type="range" id="kal-zoom" min="10" max="500" value="100" step="1">
+            <input type="number" class="cv" id="kal-zoom-v" value="100" min="10" max="500" step="1">
           </div>
           <div class="control-group">
             <label>Offset X</label>
-            <input type="range" id="kal-offx" min="-100" max="100" value="0">
-            <span class="cv" id="kal-offx-v">0</span>
+            <input type="range" id="kal-offx" min="-100" max="100" value="0" step="1">
+            <input type="number" class="cv" id="kal-offx-v" value="0" min="-100" max="100" step="1">
           </div>
           <div class="control-group">
             <label>Offset Y</label>
-            <input type="range" id="kal-offy" min="-100" max="100" value="0">
-            <span class="cv" id="kal-offy-v">0</span>
+            <input type="range" id="kal-offy" min="-100" max="100" value="0" step="1">
+            <input type="number" class="cv" id="kal-offy-v" value="0" min="-100" max="100" step="1">
           </div>
         </div>
 
@@ -125,8 +122,8 @@
           </div>
           <div class="control-group">
             <label>Zoom</label>
-            <input type="range" id="conf-zoom" min="10" max="500" value="100">
-            <span class="cv" id="conf-zoom-v">1.0x</span>
+            <input type="range" id="conf-zoom" min="10" max="500" value="100" step="1">
+            <input type="number" class="cv" id="conf-zoom-v" value="100" min="10" max="500" step="1">
           </div>
           <p class="hint" id="conf-hint">Drag on the canvas to adjust the complex exponent</p>
         </div>
@@ -135,23 +132,23 @@
         <div class="controls mode-controls" id="controls-hyperbolic">
           <div class="control-group">
             <label>p (polygon sides)</label>
-            <input type="range" id="hyp-p" min="3" max="12" value="4">
-            <span class="cv" id="hyp-p-v">4</span>
+            <input type="range" id="hyp-p" min="3" max="12" value="4" step="1">
+            <input type="number" class="cv" id="hyp-p-v" value="4" min="3" max="12" step="1">
           </div>
           <div class="control-group">
-            <label>q (meeting at vertex)</label>
-            <input type="range" id="hyp-q" min="3" max="12" value="6">
-            <span class="cv" id="hyp-q-v">6</span>
+            <label>q (at vertex)</label>
+            <input type="range" id="hyp-q" min="3" max="12" value="6" step="1">
+            <input type="number" class="cv" id="hyp-q-v" value="6" min="3" max="12" step="1">
           </div>
           <div class="control-group">
             <label>Rotation</label>
-            <input type="range" id="hyp-rotation" min="0" max="360" value="0">
-            <span class="cv" id="hyp-rotation-v">0&deg;</span>
+            <input type="range" id="hyp-rotation" min="0" max="360" value="0" step="1">
+            <input type="number" class="cv" id="hyp-rotation-v" value="0" min="0" max="360" step="1">
           </div>
           <div class="control-group">
             <label>Layers</label>
-            <input type="range" id="hyp-layers" min="1" max="6" value="3">
-            <span class="cv" id="hyp-layers-v">3</span>
+            <input type="range" id="hyp-layers" min="1" max="6" value="3" step="1">
+            <input type="number" class="cv" id="hyp-layers-v" value="3" min="1" max="6" step="1">
           </div>
         </div>
 
@@ -159,30 +156,31 @@
         <div class="controls mode-controls" id="controls-logspace">
           <div class="control-group">
             <label>Scale Factor</label>
-            <input type="range" id="log-scale" min="2" max="512" value="64">
-            <span class="cv" id="log-scale-v">64</span>
+            <input type="range" id="log-scale" min="2" max="512" value="64" step="1">
+            <input type="number" class="cv" id="log-scale-v" value="64" min="2" max="512" step="1">
           </div>
           <div class="control-group">
             <label>Zoom</label>
-            <input type="range" id="log-zoom" min="10" max="500" value="100">
-            <span class="cv" id="log-zoom-v">1.0x</span>
+            <input type="range" id="log-zoom" min="10" max="500" value="100" step="1">
+            <input type="number" class="cv" id="log-zoom-v" value="100" min="10" max="500" step="1">
           </div>
           <div class="control-group">
             <label>Pan X</label>
-            <input type="range" id="log-panx" min="-200" max="200" value="0">
-            <span class="cv" id="log-panx-v">0</span>
+            <input type="range" id="log-panx" min="-200" max="200" value="0" step="1">
+            <input type="number" class="cv" id="log-panx-v" value="0" min="-200" max="200" step="1">
           </div>
           <div class="control-group">
             <label>Pan Y</label>
-            <input type="range" id="log-pany" min="-200" max="200" value="0">
-            <span class="cv" id="log-pany-v">0</span>
+            <input type="range" id="log-pany" min="-200" max="200" value="0" step="1">
+            <input type="number" class="cv" id="log-pany-v" value="0" min="-200" max="200" step="1">
           </div>
         </div>
 
         <!-- Shared buttons -->
         <div class="button-row">
           <button class="btn" id="btn-animate">Animate</button>
-          <button class="btn" id="btn-download">Download</button>
+          <button class="btn" id="btn-download">Download PNG</button>
+          <button class="btn" id="btn-gif">Export GIF</button>
           <button class="btn btn-outline" id="btn-change">Change Image</button>
         </div>
       </section>
@@ -195,6 +193,7 @@
     </footer>
   </div>
 
+  <script src="gif.js"></script>
   <script src="transform.js"></script>
   <script src="app.js"></script>
 </body>

@@ -118,7 +118,21 @@ header h1 {
   border: 1px solid var(--border); border-radius: 6px;
   padding: 0.35rem 0.5rem; font-size: 0.85rem; cursor: pointer;
 }
-.cv {
+input[type="number"].cv {
+  width: 60px; min-width: 60px; flex-shrink: 0;
+  background: var(--surface-2); color: var(--accent);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.25rem 0.4rem; font-size: 0.8rem; font-weight: 600;
+  text-align: right; -moz-appearance: textfield;
+}
+input[type="number"].cv::-webkit-inner-spin-button,
+input[type="number"].cv::-webkit-outer-spin-button {
+  opacity: 1; /* always show stepper arrows on mobile */
+}
+input[type="number"].cv:focus {
+  outline: none; border-color: var(--accent);
+}
+span.cv {
   font-size: 0.78rem; color: var(--accent); font-weight: 600;
   min-width: 60px; text-align: right;
 }
