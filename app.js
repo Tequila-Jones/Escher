@@ -292,12 +292,34 @@
     btnAnimate.textContent = 'Animate';
   }
 
+  // ---- Save modal (iOS-friendly) ----
+  const saveModal = document.getElementById('save-modal');
+  const saveModalImg = document.getElementById('save-modal-img');
+  const saveModalClose = document.getElementById('save-modal-close');
+
+  saveModalClose.addEventListener('click', () => { saveModal.hidden = true; });
+  saveModal.addEventListener('click', (e) => { if (e.target === saveModal) saveModal.hidden = true; });
+
+  function showSaveModal(dataUrl) {
+    saveModalImg.src = dataUrl;
+    saveModal.hidden = false;
+  }
+
+  function tryDownload(dataUrl, filename) {
+    // Try programmatic download first (works on desktop)
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = dataUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    // Also show modal as fallback for iOS
+    showSaveModal(dataUrl);
+  }
+
   // ---- Download PNG ----
   btnDownload.addEventListener('click', () => {
-    const link = document.createElement('a');
-    link.download = 'escher-' + activeMode + '.png';
-    link.href = outputCanvas.toDataURL('image/png');
-    link.click();
+    tryDownload(outputCanvas.toDataURL('image/png'), 'escher-' + activeMode + '.png');
   });
 
   // ---- Export GIF ----
@@ -340,18 +362,18 @@
         requestAnimationFrame(() => {
           try {
             const blob = GIFEncoder.encode(frames, GIF_SIZE, GIF_SIZE, DELAY);
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.download = 'escher-' + activeMode + '.gif';
-            link.href = url;
-            link.click();
-            setTimeout(() => URL.revokeObjectURL(url), 5000);
+            const reader = new FileReader();
+            reader.onload = () => {
+              overlay.hidden = true;
+              tryDownload(reader.result, 'escher-' + activeMode + '.gif');
+              scheduleRender();
+            };
+            reader.readAsDataURL(blob);
           } catch (e) {
             console.error('GIF encode error:', e);
-            overlayText.textContent = 'GIF export failed';
+            overlayText.textContent = 'GIF export failed — ' + e.message;
+            setTimeout(() => { overlay.hidden = true; }, 2000);
           }
-          overlay.hidden = true;
-          scheduleRender();
         });
         return;
       }

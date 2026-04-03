@@ -186,6 +186,15 @@
       </section>
 
       <canvas id="src-canvas" hidden></canvas>
+
+      <!-- Save modal (for iOS compatibility) -->
+      <div class="modal-backdrop" id="save-modal" hidden>
+        <div class="modal">
+          <p class="modal-title">Long-press the image to save</p>
+          <img id="save-modal-img" alt="Generated image">
+          <button class="btn" id="save-modal-close">Close</button>
+        </div>
+      </div>
     </main>
 
     <footer>

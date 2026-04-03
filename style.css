@@ -160,6 +160,28 @@ footer {
 footer a { color: var(--accent); text-decoration: none; }
 footer a:hover { text-decoration: underline; }
 
+/* Save modal */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,0.85);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.modal-backdrop[hidden] { display: none; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.25rem;
+  text-align: center; max-width: 400px; width: 100%;
+}
+.modal-title {
+  font-size: 0.95rem; color: var(--text); margin-bottom: 1rem;
+}
+.modal img {
+  max-width: 100%; border-radius: 8px; margin-bottom: 1rem;
+  -webkit-touch-callout: default; /* enable long-press save on iOS */
+}
+.modal .btn { width: 100%; }
+
 /* Responsive */
 @media (max-width: 640px) {
   header h1 { font-size: 2rem; }
