@@ -297,35 +297,51 @@
   const saveModalImg = document.getElementById('save-modal-img');
   const saveModalClose = document.getElementById('save-modal-close');
 
-  saveModalClose.addEventListener('click', () => { saveModal.hidden = true; });
-  saveModal.addEventListener('click', (e) => { if (e.target === saveModal) saveModal.hidden = true; });
+  let currentBlobUrl = null;
 
-  function showSaveModal(dataUrl) {
-    saveModalImg.src = dataUrl;
-    saveModal.hidden = false;
-  }
+  saveModalClose.addEventListener('click', () => {
+    saveModal.hidden = true;
+    if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null; }
+  });
+  saveModal.addEventListener('click', (e) => {
+    if (e.target === saveModal) {
+      saveModal.hidden = true;
+      if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null; }
+    }
+  });
 
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-  function tryDownload(dataUrl, filename) {
+  function showSaveModal(blob) {
+    if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+    currentBlobUrl = URL.createObjectURL(blob);
+    saveModalImg.src = currentBlobUrl;
+    saveModal.hidden = false;
+  }
+
+  function triggerDownload(blob, filename) {
     if (isIOS) {
-      // iOS: just show modal — long-press to save
-      showSaveModal(dataUrl);
+      // iOS: show modal with image — long-press to save
+      showSaveModal(blob);
     } else {
       // Desktop: programmatic download
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.download = filename;
-      link.href = dataUrl;
+      link.href = url;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
     }
   }
 
   // ---- Download PNG ----
   btnDownload.addEventListener('click', () => {
-    tryDownload(outputCanvas.toDataURL('image/png'), 'escher-' + activeMode + '.png');
+    outputCanvas.toBlob(blob => {
+      if (blob) triggerDownload(blob, 'escher-' + activeMode + '.png');
+    }, 'image/png');
   });
 
   // ---- Export GIF ----
@@ -368,13 +384,9 @@
         requestAnimationFrame(() => {
           try {
             const blob = GIFEncoder.encode(frames, GIF_SIZE, GIF_SIZE, DELAY);
-            const reader = new FileReader();
-            reader.onload = () => {
-              overlay.hidden = true;
-              tryDownload(reader.result, 'escher-' + activeMode + '.gif');
-              scheduleRender();
-            };
-            reader.readAsDataURL(blob);
+            overlay.hidden = true;
+            triggerDownload(blob, 'escher-' + activeMode + '.gif');
+            scheduleRender();
           } catch (e) {
             console.error('GIF encode error:', e);
             overlayText.textContent = 'GIF export failed — ' + e.message;
