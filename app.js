@@ -71,10 +71,10 @@
       tabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       activeMode = tab.dataset.mode;
-      // Show/hide controls
-      document.querySelectorAll('.mode-controls').forEach(c => c.hidden = true);
+      // Show/hide controls via class toggle
+      document.querySelectorAll('.mode-controls').forEach(c => c.classList.remove('active'));
       const ctrl = document.getElementById('controls-' + activeMode);
-      if (ctrl) ctrl.hidden = false;
+      if (ctrl) ctrl.classList.add('active');
       // Show drag pad only for conformal power mode
       updateDragPadVisibility();
       scheduleRender();
