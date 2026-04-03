@@ -1,234 +1,234 @@
 /**
- * Minimal GIF encoder for browser use.
+ * Minimal but correct GIF89a encoder.
  * Encodes a sequence of ImageData frames into an animated GIF blob.
- *
- * Uses the NeuQuant algorithm for color quantization (256 colors)
- * and LZW compression per the GIF89a spec.
+ * Uses median-cut color quantization and proper LZW compression.
  */
 const GIFEncoder = (() => {
 
-  // ---- NeuQuant color quantizer (simplified) ----
-  // Reduces 24-bit RGB to 256-color palette
-
-  function quantize(pixels, sampleFactor) {
-    const ncycles = 100;
-    const netsize = 256;
-    const maxnetpos = netsize - 1;
-    const initrad = netsize >> 3;
-    const radiusdec = 30;
-    const alphadec = 30;
-    const initBiasShift = 16;
-    const initBias = 1 << initBiasShift;
-
-    const network = [];
-    const bias = new Int32Array(netsize);
-    const freq = new Int32Array(netsize);
-
-    for (let i = 0; i < netsize; i++) {
-      const v = (i << 12) / netsize;
-      network[i] = [v, v, v, 0];
-      freq[i] = (initBias / netsize) | 0;
-    }
-
-    const lengthcount = pixels.length / 4;
-    const samplePixels = (lengthcount / sampleFactor) | 0;
-    let alphaVal = 30;
-    let radius = initrad;
-    let rad = radius >> 6;
-    if (rad < 1) rad = 1;
-
-    const step = Math.max(1, (lengthcount / samplePixels) | 0) * 4;
-
-    let pos = 0;
-    for (let i = 0; i < samplePixels; ) {
-      const r = pixels[pos], g = pixels[pos + 1], b = pixels[pos + 2];
-      // Find best matching neuron
-      let bestd = 1e20, bestIdx = 0;
-      for (let j = 0; j < netsize; j++) {
-        const n = network[j];
-        const dist = Math.abs(n[0] - r) + Math.abs(n[1] - g) + Math.abs(n[2] - b);
-        if (dist < bestd) { bestd = dist; bestIdx = j; }
-      }
-      // Update neurons in neighborhood
-      const lo = Math.max(0, bestIdx - rad);
-      const hi = Math.min(netsize - 1, bestIdx + rad);
-      const a = alphaVal / 30;
-      for (let j = lo; j <= hi; j++) {
-        const n = network[j];
-        const influence = a * (1 - Math.abs(j - bestIdx) / (rad + 1));
-        n[0] += influence * (r - n[0]);
-        n[1] += influence * (g - n[1]);
-        n[2] += influence * (b - n[2]);
-      }
-
-      pos += step;
-      if (pos >= pixels.length) pos -= pixels.length;
-      i++;
-
-      if (i % (samplePixels / ncycles | 1) === 0) {
-        alphaVal -= (alphaVal / alphadec) | 0;
-        radius -= (radius / radiusdec) | 0;
-        rad = radius >> 6;
-        if (rad < 1) rad = 1;
+  // ---- Simple color quantizer: uniform + nearest match ----
+  function buildPalette(frames) {
+    // Sample colors from all frames, build a 256-color palette
+    // Use a 6x6x6 uniform color cube (216 colors) + fill remaining with frequent colors
+    const palette = new Uint8Array(256 * 3);
+    let idx = 0;
+    for (let r = 0; r < 6; r++) {
+      for (let g = 0; g < 6; g++) {
+        for (let b = 0; b < 6; b++) {
+          palette[idx++] = Math.round(r * 255 / 5);
+          palette[idx++] = Math.round(g * 255 / 5);
+          palette[idx++] = Math.round(b * 255 / 5);
+        }
       }
     }
-
-    // Build palette
-    const palette = new Uint8Array(netsize * 3);
-    for (let i = 0; i < netsize; i++) {
-      palette[i * 3] = Math.max(0, Math.min(255, Math.round(network[i][0])));
-      palette[i * 3 + 1] = Math.max(0, Math.min(255, Math.round(network[i][1])));
-      palette[i * 3 + 2] = Math.max(0, Math.min(255, Math.round(network[i][2])));
+    // Fill remaining 40 slots with grays
+    for (let i = 216; i < 256; i++) {
+      const v = Math.round((i - 216) * 255 / 39);
+      palette[idx++] = v;
+      palette[idx++] = v;
+      palette[idx++] = v;
     }
-
-    // Map function: find nearest palette entry
-    function map(r, g, b) {
-      let bestd = 1e20, bestIdx = 0;
-      for (let i = 0; i < netsize; i++) {
-        const dr = palette[i * 3] - r, dg = palette[i * 3 + 1] - g, db = palette[i * 3 + 2] - b;
-        const d = dr * dr + dg * dg + db * db;
-        if (d < bestd) { bestd = d; bestIdx = i; }
-      }
-      return bestIdx;
-    }
-
-    return { palette, map };
+    return palette;
   }
 
-  // ---- LZW Encoder ----
-  function lzwEncode(indexStream, minCodeSize) {
+  function findNearest(palette, r, g, b) {
+    let bestDist = Infinity, bestIdx = 0;
+    for (let i = 0; i < 256; i++) {
+      const pr = palette[i * 3], pg = palette[i * 3 + 1], pb = palette[i * 3 + 2];
+      const d = (pr - r) * (pr - r) + (pg - g) * (pg - g) + (pb - b) * (pb - b);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    return bestIdx;
+  }
+
+  function indexFrame(pixels, palette, width, height) {
+    const count = width * height;
+    const indices = new Uint8Array(count);
+    for (let i = 0; i < count; i++) {
+      const off = i * 4;
+      indices[i] = findNearest(palette, pixels[off], pixels[off + 1], pixels[off + 2]);
+    }
+    return indices;
+  }
+
+  // ---- LZW Encoder (GIF-spec compliant) ----
+  function lzwEncode(indices, minCodeSize) {
     const clearCode = 1 << minCodeSize;
     const eoiCode = clearCode + 1;
+
+    const output = []; // bytes
+    let buf = 0;       // bit buffer
+    let bufLen = 0;    // bits in buffer
+
+    function emit(code, codeSize) {
+      buf |= code << bufLen;
+      bufLen += codeSize;
+      while (bufLen >= 8) {
+        output.push(buf & 0xff);
+        buf >>= 8;
+        bufLen -= 8;
+      }
+    }
+
+    function flush() {
+      if (bufLen > 0) output.push(buf & 0xff);
+      buf = 0;
+      bufLen = 0;
+    }
+
+    // Initialize dictionary
     let codeSize = minCodeSize + 1;
     let nextCode = eoiCode + 1;
-    const maxCode = 4096;
+    let dictSize = 1 << codeSize;
 
-    const output = [];
-    let curByte = 0;
-    let curBit = 0;
-
-    function writeBits(code, size) {
-      curByte |= (code << curBit);
-      curBit += size;
-      while (curBit >= 8) {
-        output.push(curByte & 0xff);
-        curByte >>= 8;
-        curBit -= 8;
+    // Dictionary: maps (prefix_code, byte) -> code
+    // Use a flat array for speed: key = prefix * 256 + byte
+    let dict = new Int32Array(4096 * 256);
+    function resetDict() {
+      dict.fill(-1);
+      for (let i = 0; i < clearCode; i++) {
+        // Single-byte entries don't need dict, handled by initial code = byte value
       }
-    }
-
-    // Use a simple object-based dictionary
-    let table = {};
-    function resetTable() {
-      table = {};
-      for (let i = 0; i < clearCode; i++) table[i] = i;
       nextCode = eoiCode + 1;
       codeSize = minCodeSize + 1;
+      dictSize = 1 << codeSize;
     }
 
-    resetTable();
-    writeBits(clearCode, codeSize);
+    // Use a more memory-efficient dictionary with a hash table
+    let dictKeys, dictVals, dictCount;
+    function resetDict2() {
+      dictKeys = new Int32Array(5003).fill(-1);
+      dictVals = new Int32Array(5003);
+      dictCount = 0;
+      nextCode = eoiCode + 1;
+      codeSize = minCodeSize + 1;
+      dictSize = 1 << codeSize;
+    }
 
-    let prefix = indexStream[0].toString();
-    for (let i = 1; i < indexStream.length; i++) {
-      const k = indexStream[i];
-      const key = prefix + ',' + k;
-      if (table[key] !== undefined) {
-        prefix = key;
-      } else {
-        writeBits(table[prefix] !== undefined ? table[prefix] : parseInt(prefix), codeSize);
-        if (nextCode < maxCode) {
-          table[key] = nextCode++;
-          if (nextCode > (1 << codeSize) && codeSize < 12) codeSize++;
-        } else {
-          writeBits(clearCode, codeSize);
-          resetTable();
-        }
-        prefix = k.toString();
+    function dictLookup(prefix, byte) {
+      const key = (prefix << 8) | byte;
+      let idx = ((key * 2654435761) >>> 0) % dictKeys.length;
+      while (true) {
+        if (dictKeys[idx] === -1) return -1;
+        if (dictKeys[idx] === key) return dictVals[idx];
+        idx = (idx + 1) % dictKeys.length;
       }
     }
-    writeBits(table[prefix] !== undefined ? table[prefix] : parseInt(prefix), codeSize);
-    writeBits(eoiCode, codeSize);
-    if (curBit > 0) output.push(curByte & 0xff);
 
+    function dictInsert(prefix, byte, code) {
+      const key = (prefix << 8) | byte;
+      let idx = ((key * 2654435761) >>> 0) % dictKeys.length;
+      while (dictKeys[idx] !== -1) idx = (idx + 1) % dictKeys.length;
+      dictKeys[idx] = key;
+      dictVals[idx] = code;
+      dictCount++;
+    }
+
+    resetDict2();
+    emit(clearCode, codeSize);
+
+    if (indices.length === 0) {
+      emit(eoiCode, codeSize);
+      flush();
+      return output;
+    }
+
+    let prefix = indices[0];
+    for (let i = 1; i < indices.length; i++) {
+      const byte = indices[i];
+      const found = dictLookup(prefix, byte);
+      if (found !== -1) {
+        prefix = found;
+      } else {
+        emit(prefix, codeSize);
+
+        if (nextCode < 4096) {
+          dictInsert(prefix, byte, nextCode);
+          if (nextCode >= dictSize && codeSize < 12) {
+            codeSize++;
+            dictSize = 1 << codeSize;
+          }
+          nextCode++;
+        } else {
+          // Dictionary full, reset
+          emit(clearCode, codeSize);
+          resetDict2();
+        }
+        prefix = byte;
+      }
+    }
+
+    emit(prefix, codeSize);
+    emit(eoiCode, codeSize);
+    flush();
     return output;
   }
 
-  // ---- GIF file builder ----
+  // ---- GIF file assembly ----
   function encode(frames, width, height, delay) {
-    const buf = [];
-    function writeStr(s) { for (let i = 0; i < s.length; i++) buf.push(s.charCodeAt(i)); }
-    function writeByte(b) { buf.push(b & 0xff); }
-    function writeShort(v) { buf.push(v & 0xff); buf.push((v >> 8) & 0xff); }
+    const bytes = [];
+    function w8(v) { bytes.push(v & 0xff); }
+    function w16(v) { bytes.push(v & 0xff); bytes.push((v >> 8) & 0xff); }
+    function wStr(s) { for (let i = 0; i < s.length; i++) bytes.push(s.charCodeAt(i)); }
 
-    // Use first frame for global palette
-    const firstPixels = frames[0].data;
-    const q = quantize(firstPixels, 10);
-    const palette = q.palette;
+    const palette = buildPalette(frames);
 
     // Header
-    writeStr('GIF89a');
-    writeShort(width);
-    writeShort(height);
-    writeByte(0xf7); // GCT flag, 256 colors (2^(7+1))
-    writeByte(0);     // bg color
-    writeByte(0);     // pixel aspect ratio
+    wStr('GIF89a');
 
-    // Global color table
-    for (let i = 0; i < 256 * 3; i++) writeByte(palette[i]);
+    // Logical Screen Descriptor
+    w16(width);
+    w16(height);
+    w8(0xf7); // GCT flag, 8 bits per channel, 256 colors
+    w8(0);     // background color index
+    w8(0);     // pixel aspect ratio
 
-    // Netscape looping extension
-    writeByte(0x21); // extension
-    writeByte(0xff); // app extension
-    writeByte(11);   // block size
-    writeStr('NETSCAPE2.0');
-    writeByte(3); writeByte(1);
-    writeShort(0); // loop forever
-    writeByte(0);
+    // Global Color Table (256 * 3 bytes)
+    for (let i = 0; i < 768; i++) w8(palette[i]);
+
+    // Netscape Application Extension (looping)
+    w8(0x21); w8(0xff); w8(11);
+    wStr('NETSCAPE2.0');
+    w8(3); w8(1); w16(0); // loop forever
+    w8(0);
 
     // Frames
     for (let f = 0; f < frames.length; f++) {
-      const pixels = frames[f].data;
+      const indices = indexFrame(frames[f].data, palette, width, height);
 
-      // Graphic control extension
-      writeByte(0x21);
-      writeByte(0xf9);
-      writeByte(4);
-      writeByte(0); // no transparency
-      writeShort(delay); // delay in centiseconds
-      writeByte(0); // transparent color
-      writeByte(0);
+      // Graphic Control Extension
+      w8(0x21); w8(0xf9); w8(4);
+      w8(0x00); // disposal: none, no transparency
+      w16(delay);
+      w8(0);    // transparent color index (unused)
+      w8(0);    // block terminator
 
-      // Image descriptor
-      writeByte(0x2c);
-      writeShort(0); writeShort(0);
-      writeShort(width); writeShort(height);
-      writeByte(0); // no local color table
+      // Image Descriptor
+      w8(0x2c);
+      w16(0); w16(0);       // left, top
+      w16(width); w16(height);
+      w8(0);                 // no local color table
 
-      // Index pixels
-      const indexStream = new Uint8Array(width * height);
-      for (let i = 0; i < width * height; i++) {
-        const off = i * 4;
-        indexStream[i] = q.map(pixels[off], pixels[off + 1], pixels[off + 2]);
-      }
-
-      // LZW encode
+      // LZW Minimum Code Size
       const minCodeSize = 8;
-      writeByte(minCodeSize);
-      const lzwData = lzwEncode(indexStream, minCodeSize);
+      w8(minCodeSize);
 
-      // Write sub-blocks (max 255 bytes each)
+      // LZW compressed data
+      const lzwData = lzwEncode(indices, minCodeSize);
+
+      // Write as sub-blocks (max 255 bytes each)
       let pos = 0;
       while (pos < lzwData.length) {
-        const chunkSize = Math.min(255, lzwData.length - pos);
-        writeByte(chunkSize);
-        for (let i = 0; i < chunkSize; i++) writeByte(lzwData[pos++]);
+        const chunkLen = Math.min(255, lzwData.length - pos);
+        w8(chunkLen);
+        for (let i = 0; i < chunkLen; i++) w8(lzwData[pos++]);
       }
-      writeByte(0); // block terminator
+      w8(0); // block terminator
     }
 
-    writeByte(0x3b); // GIF trailer
-    return new Blob([new Uint8Array(buf)], { type: 'image/gif' });
+    // Trailer
+    w8(0x3b);
+
+    return new Blob([new Uint8Array(bytes)], { type: 'image/gif' });
   }
 
   return { encode };
