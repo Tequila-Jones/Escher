@@ -1,0 +1,10 @@
+{
+  "name": "escher",
+  "version": "1.0.0",
+  "description": "Transform images into Escher's Print Gallery spiral using conformal mapping",
+  "scripts": {
+    "start": "npx serve ."
+  },
+  "keywords": ["escher", "conformal-map", "droste", "style-transfer", "art"],
+  "license": "MIT"
+}

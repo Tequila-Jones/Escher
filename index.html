@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Escher - Image Art Morph</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Escher</h1>
+      <p class="subtitle">Transform images into Escher's Print Gallery spiral</p>
+    </header>
+
+    <main>
+      <!-- Upload -->
+      <section id="upload-section">
+        <div class="upload-zone" id="upload-zone">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <p>Drop an image here or <span class="browse-link">browse</span></p>
+          <p class="hint">PNG, JPG &mdash; will be resized for performance</p>
+          <input type="file" id="file-input" accept="image/*" hidden>
+        </div>
+      </section>
+
+      <!-- Canvas area -->
+      <section id="canvas-section" hidden>
+        <div class="canvas-wrapper">
+          <canvas id="output-canvas"></canvas>
+          <div class="canvas-overlay" id="canvas-overlay">
+            <span class="spinner"></span>
+            <span>Rendering...</span>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+          <div class="control-group">
+            <label for="morph-slider">Morph</label>
+            <input type="range" id="morph-slider" min="0" max="100" value="0">
+            <span class="control-value" id="morph-value">0%</span>
+          </div>
+
+          <div class="control-group">
+            <label for="scale-slider">Scale Factor</label>
+            <input type="range" id="scale-slider" min="2" max="512" value="64" step="1">
+            <span class="control-value" id="scale-value">64</span>
+          </div>
+
+          <div class="control-group">
+            <label for="zoom-slider">Zoom</label>
+            <input type="range" id="zoom-slider" min="10" max="500" value="100">
+            <span class="control-value" id="zoom-value">1.0x</span>
+          </div>
+
+          <div class="control-group">
+            <label for="rotation-slider">Extra Rotation</label>
+            <input type="range" id="rotation-slider" min="-180" max="180" value="0">
+            <span class="control-value" id="rotation-value">0&deg;</span>
+          </div>
+
+          <div class="button-row">
+            <button class="btn" id="btn-animate">Animate Morph</button>
+            <button class="btn" id="btn-download">Download</button>
+            <button class="btn btn-outline" id="btn-change">Change Image</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Hidden: source image & processing -->
+      <canvas id="src-canvas" hidden></canvas>
+    </main>
+
+    <footer>
+      <p>Based on the math of Escher's Print Gallery &mdash; De Smit &amp; Lenstra (2003) &middot; Inspired by <a href="https://youtu.be/ldxFjLJ3rVY" target="_blank">3Blue1Brown</a></p>
+    </footer>
+  </div>
+
+  <script src="transform.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
