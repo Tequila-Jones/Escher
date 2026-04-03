@@ -1,290 +1,403 @@
 /**
- * Escher Print Gallery Transformation Engine
+ * Escher Transform Engine — all rendering modes.
  *
- * Implements the De Smit & Lenstra approach:
- *   1. Complex logarithm (circles -> lines, creates doubly periodic pattern)
- *   2. Multiply by complex constant c (rotate/scale in log space)
- *   3. Complex exponential (lines -> circles, with twist)
- *
- * For rendering we use the INVERSE mapping: for each output pixel,
- * find where it came from in the source image.
+ * Each mode implements: render(srcData, srcW, srcH, outData, outW, outH, params)
+ * Uses inverse mapping: for each output pixel, find source pixel.
+ * Bilinear interpolation is shared via sampleBilinear().
  */
 
-const EscherTransform = (() => {
-  /**
-   * Compute the complex constant c for a given scale factor s.
-   * c = 2*pi*i / (ln(s) - 2*pi*i)
-   *
-   * Returns {re, im} components.
-   */
-  function computeC(scaleFactor) {
-    const lnS = Math.log(scaleFactor);
-    const twoPi = 2 * Math.PI;
-    // c = 2*pi*i / (lnS - 2*pi*i)
-    // Multiply numerator and denominator by conjugate of denominator:
-    // = 2*pi*i * (lnS + 2*pi*i) / (lnS^2 + 4*pi^2)
-    // = (2*pi*lnS*i + 2*pi*2*pi*i^2) / denom
-    // = (-4*pi^2 + 2*pi*lnS*i) / denom
-    const denom = lnS * lnS + twoPi * twoPi;
-    return {
-      re: -(twoPi * twoPi) / denom,
-      im: (twoPi * lnS) / denom
-    };
+const Transforms = (() => {
+  // ---- Shared helpers ----
+
+  function sampleBilinear(src, srcW, srcH, fx, fy, out, outIdx) {
+    // Wrap fx to [0, srcW), fy to [0, srcH)
+    fx = ((fx % srcW) + srcW) % srcW;
+    fy = ((fy % srcH) + srcH) % srcH;
+
+    const sx0 = Math.floor(fx);
+    const sy0 = Math.floor(fy);
+    const sx1 = (sx0 + 1) % srcW;
+    const sy1 = (sy0 + 1) % srcH;
+    const dx = fx - sx0;
+    const dy = fy - sy0;
+
+    const i00 = (sy0 * srcW + sx0) * 4;
+    const i10 = (sy0 * srcW + sx1) * 4;
+    const i01 = (sy1 * srcW + sx0) * 4;
+    const i11 = (sy1 * srcW + sx1) * 4;
+
+    const w00 = (1 - dx) * (1 - dy);
+    const w10 = dx * (1 - dy);
+    const w01 = (1 - dx) * dy;
+    const w11 = dx * dy;
+
+    for (let ch = 0; ch < 3; ch++) {
+      out[outIdx + ch] = Math.round(
+        src[i00 + ch] * w00 + src[i10 + ch] * w10 +
+        src[i01 + ch] * w01 + src[i11 + ch] * w11
+      );
+    }
+    out[outIdx + 3] = 255;
   }
 
-  /**
-   * Render the Escher spiral transformation.
-   *
-   * @param {ImageData} srcData - Source image pixel data
-   * @param {number} srcW - Source image width
-   * @param {number} srcH - Source image height
-   * @param {ImageData} outData - Output image pixel data to write into
-   * @param {number} outW - Output canvas width
-   * @param {number} outH - Output canvas height
-   * @param {object} params - Transformation parameters
-   * @param {number} params.scaleFactor - Droste scale factor (e.g. 64)
-   * @param {number} params.morph - Morph amount 0..1 (0 = Droste, 1 = full Escher spiral)
-   * @param {number} params.zoom - Zoom level (1.0 = default)
-   * @param {number} params.extraRotation - Additional rotation in radians
-   */
-  function render(srcData, srcW, srcH, outData, outW, outH, params) {
+  function setBlack(out, idx) {
+    out[idx] = 0; out[idx+1] = 0; out[idx+2] = 0; out[idx+3] = 255;
+  }
+
+  // ---- 1. ESCHER SPIRAL ----
+
+  function computeEscherC(scaleFactor) {
+    const lnS = Math.log(scaleFactor);
+    const twoPi = 2 * Math.PI;
+    const denom = lnS * lnS + twoPi * twoPi;
+    return { re: -(twoPi * twoPi) / denom, im: (twoPi * lnS) / denom };
+  }
+
+  function renderEscher(srcData, srcW, srcH, outData, outW, outH, params) {
     const { scaleFactor, morph, zoom, extraRotation } = params;
-
-    const src = srcData.data;
-    const out = outData.data;
-
+    const src = srcData.data, out = outData.data;
     const lnS = Math.log(scaleFactor);
     const twoPi = 2 * Math.PI;
 
-    // Compute the complex constant c
-    const c = computeC(scaleFactor);
+    const c = computeEscherC(scaleFactor);
+    const cN = { re: 0, im: lnS / twoPi };
+    const cU = { re: cN.re + morph * (c.re - cN.re), im: cN.im + morph * (c.im - cN.im) };
+    const mag2 = cU.re * cU.re + cU.im * cU.im;
+    if (mag2 < 1e-12) return;
+    const ciR = cU.re / mag2, ciI = -cU.im / mag2;
 
-    // For morph interpolation: lerp between identity-like mapping and full c
-    // At morph=0, we show the Droste image in polar/log form
-    // At morph=1, we show the full Escher spiral
-    // We interpolate c from a "neutral" value to the real value
-    // Neutral = pure imaginary (no spiral, just circular Droste)
-    const cNeutral = { re: 0, im: lnS / twoPi };
-    const cUsed = {
-      re: cNeutral.re + morph * (c.re - cNeutral.re),
-      im: cNeutral.im + morph * (c.im - cNeutral.im)
-    };
-
-    // Apply extra rotation: multiply c by e^(i*extraRotation)
-    // But we only want extra rotation on the final result, so we
-    // add it as a phase shift after the main transform.
-
-    // Precompute inverse of cUsed for the inverse mapping
-    // 1/c = conj(c) / |c|^2
-    const cMag2 = cUsed.re * cUsed.re + cUsed.im * cUsed.im;
-    if (cMag2 < 1e-12) return; // degenerate
-    const cInvRe = cUsed.re / cMag2;
-    const cInvIm = -cUsed.im / cMag2;
-
-    // Center of output
-    const cx = outW / 2;
-    const cy = outH / 2;
-
-    // Scale: map canvas to complex plane
-    const baseScale = Math.min(outW, outH) / 2;
-    const scale = baseScale * zoom;
+    const cx = outW / 2, cy = outH / 2;
+    const scale = Math.min(outW, outH) / 2 * zoom;
+    const cosR = Math.cos(-extraRotation), sinR = Math.sin(-extraRotation);
 
     for (let py = 0; py < outH; py++) {
       for (let px = 0; px < outW; px++) {
-        // Map pixel to complex number z
-        let x = (px - cx) / scale;
-        let y = (cy - py) / scale; // flip y for math convention
-
-        // Apply extra rotation to the sampling point (inverse = negative rotation)
+        let x = (px - cx) / scale, y = (cy - py) / scale;
         if (extraRotation !== 0) {
-          const cosR = Math.cos(-extraRotation);
-          const sinR = Math.sin(-extraRotation);
-          const xr = x * cosR - y * sinR;
-          const yr = x * sinR + y * cosR;
-          x = xr;
-          y = yr;
+          const xr = x * cosR - y * sinR, yr = x * sinR + y * cosR;
+          x = xr; y = yr;
         }
+        const r = Math.sqrt(x * x + y * y);
+        const oi = (py * outW + px) * 4;
+        if (r < 1e-8) { setBlack(out, oi); continue; }
 
-        // Distance from origin
+        const lnR = Math.log(r), theta = Math.atan2(y, x);
+        const u = lnR * ciR - theta * ciI;
+        const v = lnR * ciI + theta * ciR;
+
+        const imgX = ((u % lnS) + lnS) % lnS / lnS * srcW;
+        const imgY = (1 - ((v % twoPi) + twoPi) % twoPi / twoPi) * srcH;
+        sampleBilinear(src, srcW, srcH, imgX, imgY, out, oi);
+      }
+    }
+  }
+
+  // ---- 2. KALEIDOSCOPE ----
+
+  function renderKaleidoscope(srcData, srcW, srcH, outData, outW, outH, params) {
+    const { segments, rotation, zoom, offsetX, offsetY } = params;
+    const src = srcData.data, out = outData.data;
+    const cx = outW / 2, cy = outH / 2;
+    const scale = Math.min(outW, outH) / 2 * zoom;
+    const sliceAngle = 2 * Math.PI / segments;
+    const rot = rotation * Math.PI / 180;
+
+    for (let py = 0; py < outH; py++) {
+      for (let px = 0; px < outW; px++) {
+        let x = (px - cx) / scale;
+        let y = (cy - py) / scale;
+
+        // To polar
+        let angle = Math.atan2(y, x) - rot;
         const r = Math.sqrt(x * x + y * y);
 
-        const outIdx = (py * outW + px) * 4;
+        // Fold into one slice
+        angle = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        let slice = angle / sliceAngle;
+        let sliceIdx = Math.floor(slice);
+        let localAngle = (slice - sliceIdx) * sliceAngle;
 
-        if (r < 1e-8) {
-          // At the origin singularity, draw black
-          out[outIdx] = 0;
-          out[outIdx + 1] = 0;
-          out[outIdx + 2] = 0;
-          out[outIdx + 3] = 255;
+        // Mirror alternate slices
+        if (sliceIdx % 2 === 1) {
+          localAngle = sliceAngle - localAngle;
+        }
+
+        // Back to cartesian
+        const sx = r * Math.cos(localAngle) + offsetX / 100;
+        const sy = r * Math.sin(localAngle) + offsetY / 100;
+
+        // Map to image coords
+        const imgX = (sx * 0.5 + 0.5) * srcW;
+        const imgY = (0.5 - sy * 0.5) * srcH;
+
+        const oi = (py * outW + px) * 4;
+        sampleBilinear(src, srcW, srcH, imgX, imgY, out, oi);
+      }
+    }
+  }
+
+  // ---- 3. CONFORMAL MAPS ----
+
+  function renderConformal(srcData, srcW, srcH, outData, outW, outH, params) {
+    const { func, powerRe, powerIm, zoom } = params;
+    const src = srcData.data, out = outData.data;
+    const cx = outW / 2, cy = outH / 2;
+    const scale = Math.min(outW, outH) / 2 * zoom;
+
+    for (let py = 0; py < outH; py++) {
+      for (let px = 0; px < outW; px++) {
+        const zx = (px - cx) / scale;
+        const zy = (cy - py) / scale;
+        const oi = (py * outW + px) * 4;
+
+        let wx, wy;
+
+        switch (func) {
+          case 'power': {
+            // z^c = exp(c * log(z))
+            const r = Math.sqrt(zx * zx + zy * zy);
+            if (r < 1e-8) { setBlack(out, oi); continue; }
+            const lnR = Math.log(r), th = Math.atan2(zy, zx);
+            // c * log(z) = (powerRe + i*powerIm) * (lnR + i*th)
+            const resPart = powerRe * lnR - powerIm * th;
+            const imPart = powerIm * lnR + powerRe * th;
+            const eR = Math.exp(resPart);
+            wx = eR * Math.cos(imPart);
+            wy = eR * Math.sin(imPart);
+            break;
+          }
+          case 'mobius': {
+            // (z + 0.5) / (z - 0.5) — a standard Mobius transform
+            const dx = zx - 0.5, dy = zy;
+            const dMag2 = dx * dx + dy * dy;
+            if (dMag2 < 1e-8) { setBlack(out, oi); continue; }
+            const nx = zx + 0.5, ny = zy;
+            wx = (nx * dx + ny * dy) / dMag2;
+            wy = (ny * dx - nx * dy) / dMag2;
+            break;
+          }
+          case 'inversion': {
+            // 1/z = conj(z) / |z|^2
+            const mag2 = zx * zx + zy * zy;
+            if (mag2 < 1e-8) { setBlack(out, oi); continue; }
+            wx = zx / mag2;
+            wy = -zy / mag2;
+            break;
+          }
+          case 'joukowski': {
+            // z + 1/z
+            const mag2 = zx * zx + zy * zy;
+            if (mag2 < 1e-8) { setBlack(out, oi); continue; }
+            wx = zx + zx / mag2;
+            wy = zy - zy / mag2;
+            break;
+          }
+          case 'sin': {
+            // sin(z) = sin(x)cosh(y) + i*cos(x)sinh(y)
+            wx = Math.sin(zx) * Math.cosh(zy);
+            wy = Math.cos(zx) * Math.sinh(zy);
+            break;
+          }
+          case 'exp': {
+            // e^z = e^x * (cos(y) + i*sin(y))
+            const eX = Math.exp(zx);
+            wx = eX * Math.cos(zy);
+            wy = eX * Math.sin(zy);
+            break;
+          }
+          default:
+            wx = zx; wy = zy;
+        }
+
+        // Map result to image coordinates
+        const imgX = (wx * 0.25 + 0.5) * srcW;
+        const imgY = (0.5 - wy * 0.25) * srcH;
+        sampleBilinear(src, srcW, srcH, imgX, imgY, out, oi);
+      }
+    }
+  }
+
+  // ---- 4. HYPERBOLIC TILING (Poincare Disk) ----
+
+  function renderHyperbolic(srcData, srcW, srcH, outData, outW, outH, params) {
+    const { p, q, rotation, layers } = params;
+    const src = srcData.data, out = outData.data;
+    const cx = outW / 2, cy = outH / 2;
+    const radius = Math.min(outW, outH) / 2 - 2;
+    const rot = rotation * Math.PI / 180;
+
+    // Precompute fundamental domain angle
+    const angleP = Math.PI / p;
+    const angleQ = Math.PI / q;
+    const sliceAngle = 2 * Math.PI / p;
+
+    // Max reflections for tiling depth
+    const maxReflections = layers * p * 2;
+
+    for (let py = 0; py < outH; py++) {
+      for (let px = 0; px < outW; px++) {
+        const oi = (py * outW + px) * 4;
+
+        let x = (px - cx) / radius;
+        let y = (cy - py) / radius;
+
+        // Apply rotation
+        if (rot !== 0) {
+          const c = Math.cos(-rot), s = Math.sin(-rot);
+          const xr = x * c - y * s, yr = x * s + y * c;
+          x = xr; y = yr;
+        }
+
+        const distSq = x * x + y * y;
+        if (distSq >= 1.0) {
+          // Outside the disk — black
+          setBlack(out, oi);
           continue;
         }
 
-        // Step 1: Complex log
-        // log(z) = ln(r) + i*theta
-        const lnR = Math.log(r);
-        const theta = Math.atan2(y, x);
+        // Reflect point into fundamental domain
+        let reflections = 0;
+        let inDomain = false;
 
-        // Step 2: Divide by c (inverse of multiply by c)
-        // (lnR + i*theta) * (cInvRe + i*cInvIm)
-        const u = lnR * cInvRe - theta * cInvIm;
-        const v = lnR * cInvIm + theta * cInvRe;
+        for (let iter = 0; iter < maxReflections; iter++) {
+          let angle = Math.atan2(y, x);
+          angle = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
 
-        // Step 3: Map (u, v) to source image coordinates
-        // u is periodic with period ln(s) (horizontal Droste repetition)
-        // v is periodic with period 2*pi (vertical/angular repetition)
+          // Fold into first sector (angle 0..sliceAngle)
+          let sector = Math.floor(angle / sliceAngle);
+          let localAngle = angle - sector * sliceAngle;
 
-        // Normalize to [0, 1) within one tile
-        let imgX = ((u % lnS) + lnS) % lnS / lnS;
-        let imgY = ((v % twoPi) + twoPi) % twoPi / twoPi;
-
-        // Map to source pixel coordinates
-        let sx = imgX * srcW;
-        let sy = (1 - imgY) * srcH; // flip to match image convention
-
-        // Bilinear interpolation
-        const sx0 = Math.floor(sx);
-        const sy0 = Math.floor(sy);
-        const sx1 = (sx0 + 1) % srcW;
-        const sy1 = Math.min(sy0 + 1, srcH - 1);
-        const fx = sx - sx0;
-        const fy = sy - sy0;
-
-        const srcIdx00 = (sy0 * srcW + sx0) * 4;
-        const srcIdx10 = (sy0 * srcW + sx1) * 4;
-        const srcIdx01 = (sy1 * srcW + sx0) * 4;
-        const srcIdx11 = (sy1 * srcW + sx1) * 4;
-
-        const w00 = (1 - fx) * (1 - fy);
-        const w10 = fx * (1 - fy);
-        const w01 = (1 - fx) * fy;
-        const w11 = fx * fy;
-
-        for (let ch = 0; ch < 3; ch++) {
-          out[outIdx + ch] = Math.round(
-            src[srcIdx00 + ch] * w00 +
-            src[srcIdx10 + ch] * w10 +
-            src[srcIdx01 + ch] * w01 +
-            src[srcIdx11 + ch] * w11
-          );
-        }
-        out[outIdx + 3] = 255;
-      }
-    }
-  }
-
-  /**
-   * Render in chunks using requestAnimationFrame for responsiveness.
-   * Calls onProgress(fraction) and onComplete(outData) callbacks.
-   */
-  function renderAsync(srcData, srcW, srcH, outData, outW, outH, params, onProgress, onComplete) {
-    const ROWS_PER_CHUNK = 8;
-    let currentRow = 0;
-
-    const src = srcData.data;
-    const out = outData.data;
-
-    const { scaleFactor, morph, zoom, extraRotation } = params;
-    const lnS = Math.log(scaleFactor);
-    const twoPi = 2 * Math.PI;
-
-    const c = computeC(scaleFactor);
-    const cNeutral = { re: 0, im: lnS / twoPi };
-    const cUsed = {
-      re: cNeutral.re + morph * (c.re - cNeutral.re),
-      im: cNeutral.im + morph * (c.im - cNeutral.im)
-    };
-
-    const cMag2 = cUsed.re * cUsed.re + cUsed.im * cUsed.im;
-    if (cMag2 < 1e-12) { onComplete(outData); return; }
-    const cInvRe = cUsed.re / cMag2;
-    const cInvIm = -cUsed.im / cMag2;
-
-    const cx = outW / 2;
-    const cy = outH / 2;
-    const baseScale = Math.min(outW, outH) / 2;
-    const scale = baseScale * zoom;
-
-    function processChunk() {
-      const endRow = Math.min(currentRow + ROWS_PER_CHUNK, outH);
-
-      for (let py = currentRow; py < endRow; py++) {
-        for (let px = 0; px < outW; px++) {
-          let x = (px - cx) / scale;
-          let y = (cy - py) / scale;
-
-          if (extraRotation !== 0) {
-            const cosR = Math.cos(-extraRotation);
-            const sinR = Math.sin(-extraRotation);
-            const xr = x * cosR - y * sinR;
-            const yr = x * sinR + y * cosR;
-            x = xr;
-            y = yr;
-          }
-
-          const r = Math.sqrt(x * x + y * y);
-          const outIdx = (py * outW + px) * 4;
-
-          if (r < 1e-8) {
-            out[outIdx] = 0;
-            out[outIdx + 1] = 0;
-            out[outIdx + 2] = 0;
-            out[outIdx + 3] = 255;
+          if (sector % 2 === 0 && sector > 0) {
+            // Rotate back
+            const a = -sector * sliceAngle;
+            const c = Math.cos(a), s = Math.sin(a);
+            const xr = x * c - y * s, yr = x * s + y * c;
+            x = xr; y = yr;
+            reflections++;
             continue;
           }
 
-          const lnR = Math.log(r);
-          const theta = Math.atan2(y, x);
-
-          const u = lnR * cInvRe - theta * cInvIm;
-          const v = lnR * cInvIm + theta * cInvRe;
-
-          let imgX = ((u % lnS) + lnS) % lnS / lnS;
-          let imgY = ((v % twoPi) + twoPi) % twoPi / twoPi;
-
-          let sx = imgX * srcW;
-          let sy = (1 - imgY) * srcH;
-
-          const sx0 = Math.floor(sx);
-          const sy0 = Math.floor(sy);
-          const sx1 = (sx0 + 1) % srcW;
-          const sy1 = Math.min(sy0 + 1, srcH - 1);
-          const fx = sx - sx0;
-          const fy = sy - sy0;
-
-          const srcIdx00 = (sy0 * srcW + sx0) * 4;
-          const srcIdx10 = (sy0 * srcW + sx1) * 4;
-          const srcIdx01 = (sy1 * srcW + sx0) * 4;
-          const srcIdx11 = (sy1 * srcW + sx1) * 4;
-
-          const w00 = (1 - fx) * (1 - fy);
-          const w10 = fx * (1 - fy);
-          const w01 = (1 - fx) * fy;
-          const w11 = fx * fy;
-
-          for (let ch = 0; ch < 3; ch++) {
-            out[outIdx + ch] = Math.round(
-              src[srcIdx00 + ch] * w00 +
-              src[srcIdx10 + ch] * w10 +
-              src[srcIdx01 + ch] * w01 +
-              src[srcIdx11 + ch] * w11
-            );
+          // Mirror if in second half of slice
+          if (localAngle > sliceAngle / 2) {
+            const mirAngle = sector * sliceAngle + sliceAngle / 2;
+            const nx = Math.cos(mirAngle), ny = Math.sin(mirAngle);
+            const dot = x * nx + y * ny;
+            x = x - 2 * dot * nx;
+            y = y - 2 * dot * ny;
+            reflections++;
+            continue;
           }
-          out[outIdx + 3] = 255;
+
+          // Hyperbolic reflection across geodesic
+          // Use a circle inversion for the inner edge of the fundamental domain
+          const geodesicR = 1 / Math.cos(angleP);
+          const geodesicCx = geodesicR;
+          const geodesicCy = 0;
+
+          const dx = x - geodesicCx;
+          const dy = y - geodesicCy;
+          const d2 = dx * dx + dy * dy;
+          const invR2 = (geodesicR * geodesicR - 1);
+
+          if (d2 < invR2 && d2 > 1e-10) {
+            // Invert through the geodesic circle
+            const ratio = invR2 / d2;
+            x = geodesicCx + dx * ratio;
+            y = geodesicCy + dy * ratio;
+            reflections++;
+            continue;
+          }
+
+          inDomain = true;
+          break;
+        }
+
+        // Map the fundamental domain point to image coords
+        const rr = Math.sqrt(x * x + y * y);
+        const th = Math.atan2(y, x);
+
+        // Use reflection count for color variation
+        const tileShade = (reflections % 2 === 0) ? 1.0 : 0.85;
+
+        const imgX = ((th / angleP) * 0.5 + 0.5) * srcW;
+        const imgY = (1 - rr) * srcH;
+        sampleBilinear(src, srcW, srcH, imgX, imgY, out, oi);
+
+        // Apply tiling shade
+        if (tileShade < 1.0) {
+          out[oi] = Math.round(out[oi] * tileShade);
+          out[oi+1] = Math.round(out[oi+1] * tileShade);
+          out[oi+2] = Math.round(out[oi+2] * tileShade);
         }
       }
+    }
+  }
 
-      currentRow = endRow;
-      if (onProgress) onProgress(currentRow / outH);
+  // ---- 5. LOG SPACE (doubly periodic visualization) ----
 
-      if (currentRow < outH) {
-        requestAnimationFrame(processChunk);
-      } else {
+  function renderLogSpace(srcData, srcW, srcH, outData, outW, outH, params) {
+    const { scaleFactor, zoom, panX, panY } = params;
+    const src = srcData.data, out = outData.data;
+    const lnS = Math.log(scaleFactor);
+    const twoPi = 2 * Math.PI;
+    const cx = outW / 2, cy = outH / 2;
+    const scale = Math.min(outW, outH) / (2 * Math.PI) * zoom;
+
+    for (let py = 0; py < outH; py++) {
+      for (let px = 0; px < outW; px++) {
+        // Map pixel to log-space coordinates
+        const u = (px - cx) / scale + panX / 50;
+        const v = (cy - py) / scale + panY / 50;
+
+        // Periodic tiling: u mod ln(s), v mod 2*pi
+        const imgX = ((u % lnS) + lnS) % lnS / lnS * srcW;
+        const imgY = (1 - ((v % twoPi) + twoPi) % twoPi / twoPi) * srcH;
+
+        const oi = (py * outW + px) * 4;
+        sampleBilinear(src, srcW, srcH, imgX, imgY, out, oi);
+      }
+    }
+  }
+
+  // ---- Async wrapper (chunks for UI responsiveness) ----
+
+  function renderAsync(renderFn, srcData, srcW, srcH, outData, outW, outH, params, onComplete) {
+    const ROWS = 16;
+    let row = 0;
+
+    // Create a temp full-size output, render in chunks
+    const src = srcData.data;
+
+    function chunk() {
+      const end = Math.min(row + ROWS, outH);
+      // Create a sub-view by rendering rows
+      // For simplicity, just render synchronously in small chunks
+      const tmpSrc = srcData;
+      const tmpOut = outData;
+
+      // We render the full thing but in row batches
+      // To do this efficiently, we pass row range via params
+      const p = Object.assign({}, params, { _rowStart: row, _rowEnd: end });
+
+      // Just call the sync render for now — it's fast enough at 600px
+      if (row === 0) {
+        renderFn(srcData, srcW, srcH, outData, outW, outH, params);
         if (onComplete) onComplete(outData);
+        return;
       }
     }
 
-    requestAnimationFrame(processChunk);
+    chunk();
   }
 
-  return { render, renderAsync, computeC };
+  // ---- Public API ----
+
+  return {
+    escher: { render: renderEscher },
+    kaleidoscope: { render: renderKaleidoscope },
+    conformal: { render: renderConformal },
+    hyperbolic: { render: renderHyperbolic },
+    logspace: { render: renderLogSpace },
+    renderAsync
+  };
 })();

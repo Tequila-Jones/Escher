@@ -10,7 +10,7 @@
   <div class="app">
     <header>
       <h1>Escher</h1>
-      <p class="subtitle">Transform images into Escher's Print Gallery spiral</p>
+      <p class="subtitle">Transform images with math-powered art effects</p>
     </header>
 
     <main>
@@ -28,56 +28,170 @@
         </div>
       </section>
 
-      <!-- Canvas area -->
-      <section id="canvas-section" hidden>
+      <!-- Workspace (shown after upload) -->
+      <section id="workspace" hidden>
+
+        <!-- Tabs -->
+        <nav class="tabs" id="tabs">
+          <button class="tab active" data-mode="escher">Escher Spiral</button>
+          <button class="tab" data-mode="kaleidoscope">Kaleidoscope</button>
+          <button class="tab" data-mode="conformal">Conformal Maps</button>
+          <button class="tab" data-mode="hyperbolic">Hyperbolic</button>
+          <button class="tab" data-mode="logspace">Log Space</button>
+        </nav>
+
+        <!-- Canvas -->
         <div class="canvas-wrapper">
           <canvas id="output-canvas"></canvas>
           <div class="canvas-overlay" id="canvas-overlay">
             <span class="spinner"></span>
             <span>Rendering...</span>
           </div>
+          <!-- Interactive drag pad (for conformal exponent control) -->
+          <canvas id="drag-pad" class="drag-pad" hidden></canvas>
         </div>
 
-        <!-- Controls -->
-        <div class="controls">
-          <div class="control-group">
-            <label for="morph-slider">Morph</label>
-            <input type="range" id="morph-slider" min="0" max="100" value="0">
-            <span class="control-value" id="morph-value">0%</span>
-          </div>
+        <!-- Mode-specific controls -->
 
+        <!-- Escher Spiral -->
+        <div class="controls mode-controls" id="controls-escher">
           <div class="control-group">
-            <label for="scale-slider">Scale Factor</label>
-            <input type="range" id="scale-slider" min="2" max="512" value="64" step="1">
-            <span class="control-value" id="scale-value">64</span>
+            <label>Morph</label>
+            <input type="range" id="escher-morph" min="0" max="100" value="0">
+            <span class="cv" id="escher-morph-v">0%</span>
           </div>
-
           <div class="control-group">
-            <label for="zoom-slider">Zoom</label>
-            <input type="range" id="zoom-slider" min="10" max="500" value="100">
-            <span class="control-value" id="zoom-value">1.0x</span>
+            <label>Scale Factor</label>
+            <input type="range" id="escher-scale" min="2" max="512" value="64">
+            <span class="cv" id="escher-scale-v">64</span>
           </div>
-
           <div class="control-group">
-            <label for="rotation-slider">Extra Rotation</label>
-            <input type="range" id="rotation-slider" min="-180" max="180" value="0">
-            <span class="control-value" id="rotation-value">0&deg;</span>
+            <label>Zoom</label>
+            <input type="range" id="escher-zoom" min="10" max="500" value="100">
+            <span class="cv" id="escher-zoom-v">1.0x</span>
           </div>
+          <div class="control-group">
+            <label>Rotation</label>
+            <input type="range" id="escher-rotation" min="-180" max="180" value="0">
+            <span class="cv" id="escher-rotation-v">0&deg;</span>
+          </div>
+        </div>
 
-          <div class="button-row">
-            <button class="btn" id="btn-animate">Animate Morph</button>
-            <button class="btn" id="btn-download">Download</button>
-            <button class="btn btn-outline" id="btn-change">Change Image</button>
+        <!-- Kaleidoscope -->
+        <div class="controls mode-controls" id="controls-kaleidoscope" hidden>
+          <div class="control-group">
+            <label>Segments</label>
+            <input type="range" id="kal-segments" min="3" max="24" value="6">
+            <span class="cv" id="kal-segments-v">6</span>
           </div>
+          <div class="control-group">
+            <label>Rotation</label>
+            <input type="range" id="kal-rotation" min="0" max="360" value="0">
+            <span class="cv" id="kal-rotation-v">0&deg;</span>
+          </div>
+          <div class="control-group">
+            <label>Zoom</label>
+            <input type="range" id="kal-zoom" min="10" max="500" value="100">
+            <span class="cv" id="kal-zoom-v">1.0x</span>
+          </div>
+          <div class="control-group">
+            <label>Offset X</label>
+            <input type="range" id="kal-offx" min="-100" max="100" value="0">
+            <span class="cv" id="kal-offx-v">0</span>
+          </div>
+          <div class="control-group">
+            <label>Offset Y</label>
+            <input type="range" id="kal-offy" min="-100" max="100" value="0">
+            <span class="cv" id="kal-offy-v">0</span>
+          </div>
+        </div>
+
+        <!-- Conformal Maps -->
+        <div class="controls mode-controls" id="controls-conformal" hidden>
+          <div class="control-group">
+            <label>Function</label>
+            <select id="conf-func">
+              <option value="power">z^c (complex power)</option>
+              <option value="mobius">Mobius (a*z+b)/(c*z+d)</option>
+              <option value="inversion">1/z (inversion)</option>
+              <option value="joukowski">Joukowski</option>
+              <option value="sin">sin(z)</option>
+              <option value="exp">e^z</option>
+            </select>
+          </div>
+          <div class="control-group" id="conf-power-group">
+            <label>Exponent (drag pad)</label>
+            <span class="cv" id="conf-power-v">2.0 + 0.0i</span>
+          </div>
+          <div class="control-group">
+            <label>Zoom</label>
+            <input type="range" id="conf-zoom" min="10" max="500" value="100">
+            <span class="cv" id="conf-zoom-v">1.0x</span>
+          </div>
+          <p class="hint" id="conf-hint">Drag on the canvas to adjust the complex exponent</p>
+        </div>
+
+        <!-- Hyperbolic Tiling -->
+        <div class="controls mode-controls" id="controls-hyperbolic" hidden>
+          <div class="control-group">
+            <label>p (polygon sides)</label>
+            <input type="range" id="hyp-p" min="3" max="12" value="4">
+            <span class="cv" id="hyp-p-v">4</span>
+          </div>
+          <div class="control-group">
+            <label>q (meeting at vertex)</label>
+            <input type="range" id="hyp-q" min="3" max="12" value="6">
+            <span class="cv" id="hyp-q-v">6</span>
+          </div>
+          <div class="control-group">
+            <label>Rotation</label>
+            <input type="range" id="hyp-rotation" min="0" max="360" value="0">
+            <span class="cv" id="hyp-rotation-v">0&deg;</span>
+          </div>
+          <div class="control-group">
+            <label>Layers</label>
+            <input type="range" id="hyp-layers" min="1" max="6" value="3">
+            <span class="cv" id="hyp-layers-v">3</span>
+          </div>
+        </div>
+
+        <!-- Log Space -->
+        <div class="controls mode-controls" id="controls-logspace" hidden>
+          <div class="control-group">
+            <label>Scale Factor</label>
+            <input type="range" id="log-scale" min="2" max="512" value="64">
+            <span class="cv" id="log-scale-v">64</span>
+          </div>
+          <div class="control-group">
+            <label>Zoom</label>
+            <input type="range" id="log-zoom" min="10" max="500" value="100">
+            <span class="cv" id="log-zoom-v">1.0x</span>
+          </div>
+          <div class="control-group">
+            <label>Pan X</label>
+            <input type="range" id="log-panx" min="-200" max="200" value="0">
+            <span class="cv" id="log-panx-v">0</span>
+          </div>
+          <div class="control-group">
+            <label>Pan Y</label>
+            <input type="range" id="log-pany" min="-200" max="200" value="0">
+            <span class="cv" id="log-pany-v">0</span>
+          </div>
+        </div>
+
+        <!-- Shared buttons -->
+        <div class="button-row">
+          <button class="btn" id="btn-animate">Animate</button>
+          <button class="btn" id="btn-download">Download</button>
+          <button class="btn btn-outline" id="btn-change">Change Image</button>
         </div>
       </section>
 
-      <!-- Hidden: source image & processing -->
       <canvas id="src-canvas" hidden></canvas>
     </main>
 
     <footer>
-      <p>Based on the math of Escher's Print Gallery &mdash; De Smit &amp; Lenstra (2003) &middot; Inspired by <a href="https://youtu.be/ldxFjLJ3rVY" target="_blank">3Blue1Brown</a></p>
+      <p>Conformal mapping art engine &middot; Inspired by <a href="https://youtu.be/ldxFjLJ3rVY" target="_blank">3Blue1Brown</a> &middot; De Smit &amp; Lenstra (2003)</p>
     </footer>
   </div>
 
